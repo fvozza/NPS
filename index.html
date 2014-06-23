@@ -1,0 +1,318 @@
+<!-- /*
+ *
+ * NPS Analyzer
+ * (c) 2014 Francesco Vozza
+ *
+ */ -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NPS Trend</title>
+
+  <!-- Load Styles -->
+  <link href='http://fonts.googleapis.com/css?family=Open+Sans:300' rel='stylesheet' type='text/css'>
+  <link href="http://maxcdn.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.css" rel="stylesheet" type='text/css'>
+  <link href="http://maxcdn.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap-theme.min.css" rel="stylesheet" type='text/css'>
+  <link href="styles/nps.css" rel="stylesheet" type='text/css'>
+  <!-- Load scripts -->
+  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+  <script type='text/javascript' src='http://www.google.com/jsapi'></script>
+  <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.1.1/js/bootstrap.js"></script>
+  <script type='text/javascript' src='http://cdnjs.cloudflare.com/ajax/libs/moment.js/2.6.0/moment.min.js'></script>
+  <script src="scripts/jquery.parse.js"></script>
+  <script src="scripts/jquery.bootstrap.newsbox.min.js" type="text/javascript"></script>
+
+  <script>
+
+    var chart;
+    var nps;
+    var chart_options = {
+      displayAnnotations: true,
+      displayZoomButtons: false,
+      max: 100,
+      min: -50,
+    };
+
+
+    $(document).ready(function() {
+      google.load('visualization', '1.1', {'packages':['annotationchart'], callback: initChart});
+
+      if(isAPIAvailable()) {
+        $('#hidden_file').bind('change', handleFileSelect);
+      }
+    });
+
+
+    function isAPIAvailable() {
+      // Check for the various File API support.
+      if (window.File && window.FileReader && window.FileList && window.Blob) {
+        // Great success! All the File APIs are supported.
+        return true;
+      } else {
+        // source: File API availability - http://caniuse.com/#feat=fileapi
+        // source: <output> availability - http://html5doctor.com/the-output-element/
+        document.writeln('The HTML5 APIs used in this form are only available in the following browsers:<br />');
+        // 6.0 File API & 13.0 <output>
+        document.writeln(' - Google Chrome: 13.0 or later<br />');
+        // 3.6 File API & 6.0 <output>
+        document.writeln(' - Mozilla Firefox: 6.0 or later<br />');
+        // 10.0 File API & 10.0 <output>
+        document.writeln(' - Internet Explorer: Not supported (partial support expected in 10.0)<br />');
+        // ? File API & 5.1 <output>
+        document.writeln(' - Safari: Not supported<br />');
+        // ? File API & 9.2 <output>
+        document.writeln(' - Opera: Not supported');
+        return false;
+      }
+    }
+
+
+    function NPSScore(data) {
+
+      this.nps_data = [];
+
+      if (data != undefined) { this.nps_data = data };
+
+      this.value = function(date) {
+        var nps_subset =  this.nps_data.filter(function(x) {
+          return moment(x.date) <= date;
+        })
+
+        var detractors = nps_subset.filter(function(x) { return x.rating <= 6 }).length;
+        var promoters = nps_subset.filter(function(x) { return x.rating >= 9 }).length;
+        var total = nps_subset.length;
+
+        var score = ((promoters/total - detractors/total)*100);
+
+        return score;
+      }
+    }
+
+    function handleFileSelect(evt) {
+      $('input[type=file]').parse({
+        config: {
+          delimiter: ",",
+        },
+        error: function(err, file, inputElem)
+        {
+          console.log(err);
+        },
+        complete: function(results, file, inputElem, event)
+        {
+          nps = new NPSScore(results.results.rows);
+
+          updateChart(nps);
+          populateTicker(nps);
+
+          //initTimeline();
+
+          $("#content").removeClass("invisible");
+        }
+      });
+    }
+
+    function initChart() {
+
+      var data = new google.visualization.DataTable();
+      data.addColumn('date', 'Date');
+      data.addColumn('number', 'NPS');
+
+      chart = new google.visualization.AnnotationChart(document.getElementById('chart_div'));
+
+      chart.draw(data, chart_options);
+    }
+
+    function updateChart(nps) {
+
+      var data = new google.visualization.DataTable();
+
+      data.addColumn('date', 'Date');
+      data.addColumn('number', 'NPS');
+
+      var startDate = moment('2014-02-24');
+      var endDate = moment();
+      var cursorDate = startDate;
+
+      while (cursorDate.isBefore(endDate)) {
+
+        data.addRow([new Date(cursorDate.toDate()), nps.value(cursorDate)]);
+
+        cursorDate.add('d', 1);
+      }
+
+      chart.draw(data, chart_options);
+    }
+
+    function populateTicker(nps) {
+
+      var list = $('.ticker').empty();
+
+      // Filter out empty feedback texts
+      var nps_subset =  nps.nps_data.filter(function(x) {
+        return x.feedback_text != '';
+      })
+
+      shuffle(nps_subset);
+
+      for (i=0; i < nps_subset.length; i++) {
+
+        var badge_class = "badge alert-info";
+
+        if (nps_subset[i].rating < 7) {
+            badge_class = "badge alert-danger";
+        } else if (nps_subset[i].rating > 8) {
+            badge_class = "badge alert-success";
+        }
+
+        element = '<li class="news-item">' +
+          '<span class="' + badge_class + '">' + nps_subset[i].rating + '</span>' +
+          '<span class="text-muted"> ' + nps_subset[i].date + '</span>' +
+          '<p>' + nps_subset[i].feedback_text.slice(0,140) + '</p>' +
+          '</li>'
+        list.append(element);
+      }
+
+      // Initialize NewsBox
+      list.bootstrapNews({
+          newsPerPage: 3,
+          autoplay: true,
+          pauseOnHover: true,
+          navigation: true,
+          direction: 'down',
+          newsTickerInterval: 2500,
+          onToDo: function () {
+              //console.log(this);
+          }
+      });
+    }
+
+    function openCSV() {
+      document.getElementById("hidden_file").click();
+    }
+
+    /* Fisher-Yates (aka Knuth) Shuffle
+     * http://bost.ocks.org/mike/shuffle/
+     */
+    function shuffle(array) {
+      var currentIndex = array.length
+        , temporaryValue
+        , randomIndex
+        ;
+
+      // While there remain elements to shuffle...
+      while (0 !== currentIndex) {
+
+        // Pick a remaining element...
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex -= 1;
+
+        // And swap it with the current element.
+        temporaryValue = array[currentIndex];
+        array[currentIndex] = array[randomIndex];
+        array[randomIndex] = temporaryValue;
+      }
+
+      return array;
+    }
+
+    function initTimeline() {
+          // DOM element where the Timeline will be attached
+      var container = document.getElementById('vis_timeline');
+
+      // Create a DataSet with data (enables two way data binding)
+      var data = new vis.DataSet([
+        {id: 1, content: 'item 1', start: '2013-04-20'},
+        {id: 2, content: 'item 2', start: '2013-04-14'},
+        {id: 3, content: 'item 3', start: '2013-04-18'},
+        {id: 4, content: 'item 4', start: '2013-04-16', end: '2013-04-19'},
+        {id: 5, content: 'item 5', start: '2013-04-25'},
+        {id: 6, content: 'item 6', start: '2013-04-27'}
+      ]);
+
+      // Configuration for the Timeline
+      var options = {};
+
+      // Create a Timeline
+      var timeline = new vis.Timeline(container, data, options);
+    }
+  </script>
+</head>
+
+<body>
+  <!-- Navbar -->
+  <nav class="navbar navbar-default" role="navigation">
+    <div class="container-fluid">
+      <div class="navbar-header">
+        <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#"></button>
+        <a class="navbar-brand" href="#">HERE</a>
+      </div>
+      <!-- Dropdown -->
+      <div class="collapse navbar-collapse" id="navbar">
+        <ul class="nav navbar-nav">
+          <li class="dropdown">
+            <a href="#" class="dropdown-toggle" data-toggle="dropdown">NPS Analyzer <b class="caret"></b></a>
+            <ul class="dropdown-menu">
+              <li id="loadcsv" role="presentation"><a role="menuitem" tabindex="-1" href="#" onclick="openCSV();return;">Load data (.csv)</a></li>
+              <li role="presentation" class="divider"></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onclick='$("#aboutModal").modal();'>About</a></li>
+              <input type="file" id="hidden_file" style="display:none">
+            </ul>
+          </li>
+        </ul><!--/.ul nav navbar-nav -->
+      </div><!-- /.navbar-collapse -->
+    </div><!-- /.container-fluid -->
+  </nav>
+  <!-- About Modal -->
+  <div class="modal fade" id="aboutModal">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+          <h4 class="modal-title">NPS Analyzer</h4>
+        </div>
+        <div class="modal-body">
+          <p>
+            A simple tool to analyze NPS data generated by HERE apps (ie. HERE Maps for Windows 8.1).
+            The expected data format is a .csv file with at least the following fields:
+            <ul>
+              <li>date</li>
+              <li>rating</li>
+              <li>feedback_text</li>
+            </ul>
+          </p>
+        </div>
+        <div class="modal-footer">
+          <p class="text-left">(c) 2014 Francesco Vozza - <a href="mailto:francesco.vozza@here.com">Contact me.</a></p>
+        </div>
+      </div><!-- /.modal-content -->
+    </div><!-- /.modal-dialog -->
+  </div><!-- /.modal -->
+  <!-- Chart and News Box -->
+  <div class="container invisible" id="content">
+    <div class="row">
+      <div class="col-md-7"> <!-- Chart -->
+        <div id='chart_div' style='width: 650px; height: 350px; border: 1px solid rgba(128, 128, 128, 0.33);'></div>
+      </div>
+      <div class="col-md-5"> <!-- Feedback -->
+				<div class="panel panel-default">
+					<div class="panel-heading">
+						<span class="glyphicon glyphicon-list-alt"></span><b>Feedback</b></div>
+					<div class="panel-body">
+						<div class="row">
+							<div class="col-xs-12">
+								<ul class="ticker">
+								</ul>
+							</div>
+						</div>
+					</div>
+					<div class="panel-footer">
+					</div>
+				</div>
+      </div>
+    </div>
+  </div>
+</body>
